@@ -1,6 +1,7 @@
 use seed::{prelude::*, *};
 
 mod pages;
+mod subject;
 
 fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
@@ -21,7 +22,8 @@ fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
 impl Model {
     fn default() -> Self {
         Self {
-            login: Some(pages::login::Model::default())
+            login: Some(pages::login::Model::default()),
+            subjects: pages::subjects::Model::default(),
         }
     }
 }
@@ -29,12 +31,14 @@ impl Model {
 #[derive(Default, Debug)]
 struct Model {
     login: Option<pages::login::Model>,
+    subjects: pages::subjects::Model,
 }
 
 #[derive(Debug)]
 pub enum Message {
     GoodLogin(shared::User),
     LoginMsg(pages::login::Message),
+    SubjectMessage(pages::subjects::Message),
     NetworkError(fetch::FetchError),
 }
 
