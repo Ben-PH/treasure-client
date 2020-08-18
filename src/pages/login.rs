@@ -1,13 +1,11 @@
-
 use seed::{prelude::*, *};
-use serde::{Deserialize, Serialize};
 
 use shared;
 // ------ ------
 //     Init
 // ------ ------
 
-pub fn init() -> Model {
+pub fn _init() -> Model {
     Model::default()
 }
 
@@ -93,76 +91,56 @@ pub fn update(
             model.good_log = false;
         }
         GoodLogin(usr) => return Some(crate::Message::GoodLogin(usr)),
-        Populate => {
-            orders.perform_cmd(
-                async{
-                    let req = Request::new("api/auth/dev/populate")
-                        .method(Method::Post)
-                        .fetch()
-                        .await
-                        .expect("should have gotten good response")
-                        .json::<shared::Subject>().await
-                        .expect("bug in deser");
-
-                    log!("{:#?}", req);
-                    GoodLogin(shared::User{email: "".to_string(), first_name: "".to_string(), last_name:"".to_string()})
-                }
-            );
-        }
         _ => log!("impl me: ", msg),
     }
     None
 }
 
 pub fn view(creds: &Model) -> impl IntoNodes<Message> {
-    nodes![
-        form![
-            ev(Ev::Submit, |event| {
-                event.prevent_default();
-                Message::LoginClicked
-            }),
-            fieldset![
-                // attrs! {
-                //     At::Disabled=> status.as_at_value(),
-                // },
-                legend!["credentials"],
-                ul![
-                    li![
-                        label![attrs! { At::For => "username"}],
-                        input![
-                            attrs! {
-                                At::Required => true,
-                                At::Value=> creds.form.email,
-                                At::Name => "username",
-                                At::Type=> "email",
-                                At::Placeholder => "Email"
+    nodes![form![
+        ev(Ev::Submit, |event| {
+            event.prevent_default();
+            Message::LoginClicked
+        }),
+        fieldset![
+            // attrs! {
+            //     At::Disabled=> status.as_at_value(),
+            // },
+            legend!["credentials"],
+            ul![
+                li![
+                    label![attrs! { At::For => "username"}],
+                    input![
+                        attrs! {
+                            At::Required => true,
+                            At::Value=> creds.form.email,
+                            At::Name => "username",
+                            At::Type=> "email",
+                            At::Placeholder => "Email"
 
-                            },
-                            input_ev(Ev::Input, Message::ChangeEmail),
-                        ]
-                    ],
-                    li![
-                        label![attrs! { At::For => "password"} ],
-                        input![
-                            attrs! {
-                                At::Required => true,
-                                At::Value => creds.form.password,
-                                At::Type=> "password",
-                                At::Placeholder => "Password"
-                            },
-                            input_ev(Ev::Input, Message::ChangePassword),
-                        ]
+                        },
+                        input_ev(Ev::Input, Message::ChangeEmail),
+                    ]
+                ],
+                li![
+                    label![attrs! { At::For => "password"}],
+                    input![
+                        attrs! {
+                            At::Required => true,
+                            At::Value => creds.form.password,
+                            At::Type=> "password",
+                            At::Placeholder => "Password"
+                        },
+                        input_ev(Ev::Input, Message::ChangePassword),
                     ]
                 ]
-
-            ],
-            button![
-                "Login",
-                attrs! {
-                    At::Type=> "submit"
-                },
             ]
         ],
-        button!["populate", ev(Ev::Click, |_| Message::Populate)]
-    ]
+        button![
+            "Login",
+            attrs! {
+                At::Type=> "submit"
+            },
+        ]
+    ],]
 }

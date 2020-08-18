@@ -48,9 +48,10 @@ pub enum Message {
 
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
     log("updating");
+
     use Message::*;
     match msg {
-        GoodLogin(usr) => {
+        GoodLogin(_usr) => {
             model.login = None;
             log!("good login");
         }
@@ -58,11 +59,14 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
             if let Some(GoodLogin(usr)) = pages::login::update(
                 msg,
                 model.login.as_mut().unwrap(),
-                &mut orders.proxy(Message::LoginMsg),
+                &mut orders.proxy(LoginMsg),
             ) {
                 orders.perform_cmd(async move { GoodLogin(usr) });
             }
-        },
+        }
+        SubjectMessage(msg) => {
+            pages::subjects::update(msg, &mut model.subjects, &mut orders.proxy(SubjectMessage))
+        }
         _ => log!("impl me: ", msg),
     }
 }
@@ -72,10 +76,14 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 // ------ ------
 
 fn view(mdl: &Model) -> Vec<Node<Message>> {
-    match &mdl.login {
+    let main_view = match &mdl.login {
         Some(login) => nodes![pages::login::view(&login)].map_msg(Message::LoginMsg),
-        None => nodes![div![format!("logged-in:\n{:?}", mdl)]]
-    }
+        None => nodes![div!["foobar"]],
+    };
+    nodes![
+        main_view,
+        pages::subjects::view(&mdl.subjects).map_msg(Message::SubjectMessage)
+    ]
 }
 
 #[wasm_bindgen(start)]
