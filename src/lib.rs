@@ -24,6 +24,7 @@ impl Model {
         Self {
             login: Some(pages::login::Model::default()),
             subjects: pages::subjects::Model::default(),
+            canvas: ElRef::default(),
         }
     }
 }
@@ -32,6 +33,7 @@ impl Model {
 struct Model {
     login: Option<pages::login::Model>,
     subjects: pages::subjects::Model,
+    canvas: ElRef<web_sys::HtmlCanvasElement>,
 }
 
 #[derive(Debug)]
@@ -82,7 +84,11 @@ fn view(mdl: &Model) -> Vec<Node<Message>> {
     };
     nodes![
         main_view,
-        pages::subjects::view(&mdl.subjects).map_msg(Message::SubjectMessage)
+        pages::subjects::view(&mdl.subjects).map_msg(Message::SubjectMessage),
+        canvas![
+            el_ref(&mdl.canvas),
+            attrs! { At::Width => px(200), At::Height => px(200) }
+        ]
     ]
 }
 
