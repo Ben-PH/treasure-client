@@ -23,7 +23,7 @@ impl Model {
     fn default() -> Self {
         Self {
             login: Some(pages::login::Model::default()),
-            subjects: pages::subjects::Model::default(),
+            subjects: pages::cg_graph::Model::default(),
             canvas: ElRef::default(),
         }
     }
@@ -32,7 +32,7 @@ impl Model {
 #[derive(Default, Debug)]
 struct Model {
     login: Option<pages::login::Model>,
-    subjects: pages::subjects::Model,
+    subjects: pages::cg_graph::Model,
     canvas: ElRef<web_sys::HtmlCanvasElement>,
 }
 
@@ -40,7 +40,7 @@ struct Model {
 pub enum Message {
     GoodLogin(shared::User),
     LoginMsg(pages::login::Message),
-    SubjectMessage(pages::subjects::Message),
+    CGGraphMessage(pages::cg_graph::Message),
     NetworkError(fetch::FetchError),
 }
 
@@ -66,8 +66,8 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
                 orders.perform_cmd(async move { GoodLogin(usr) });
             }
         }
-        SubjectMessage(msg) => {
-            pages::subjects::update(msg, &mut model.subjects, &mut orders.proxy(SubjectMessage))
+        CGGraphMessage(msg) => {
+            pages::cg_graph::update(msg, &mut model.subjects, &mut orders.proxy(CGGraphMessage))
         }
         _ => log!("impl me: ", msg),
     }
@@ -84,7 +84,7 @@ fn view(mdl: &Model) -> Vec<Node<Message>> {
     };
     nodes![
         main_view,
-        pages::subjects::view(&mdl.subjects).map_msg(Message::SubjectMessage),
+        pages::cg_graph::view(&mdl.subjects).map_msg(Message::CGGraphMessage),
         canvas![
             el_ref(&mdl.canvas),
             attrs! { At::Width => px(200), At::Height => px(200) }

@@ -1,2 +1,2 @@
 pub mod login;
-pub mod subjects;
+pub mod cg_graph;
