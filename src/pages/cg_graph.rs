@@ -8,10 +8,11 @@ use web_sys::HtmlCanvasElement;
 
 const WIDTH: usize = 450;
 const HEIGHT: usize = 300;
+const RAD: u32 = 10;
 
 #[derive(Default, Debug)]
 pub struct Model {
-    pub pet: DiGraph<learning_trajectory::ConsensusGoal, f32>,
+    pub pet: DiGraph<CGNode, f32>,
     fill_color: Color,
     canvas: ElRef<HtmlCanvasElement>,
 }
@@ -28,6 +29,7 @@ impl Default for Myf32 {
 pub enum Message {
     FetchCGGraph,
     CGGraph(fetch::Result<learning_trajectory::CGGraph>),
+    CanvasClick,
     DotFile,
     Rendered,
     ChangeColor,
@@ -53,8 +55,16 @@ impl Default for Color {
         Self::A
     }
 }
+
+#[derive (Debug)]
+pub struct CGNode {
+    color: [u8;3],
+    pos_x: f64,
+    pos_y: f64,
+    cg: shared::learning_trajectory::ConsensusGoal,
+}
 fn draw(
-    model: &petgraph::graph::DiGraph<shared::learning_trajectory::ConsensusGoal, f32>,
+    model: &petgraph::graph::DiGraph<CGNode, f32>,
     canvas: &ElRef<HtmlCanvasElement>,
     fill_color: Color,
 ) {
@@ -65,17 +75,14 @@ fn draw(
     ctx.set_fill_style(&JsValue::from_str(fill_color.as_str()));
     ctx.fill();
 
-    let radius: u32 = 10;
-    let diam: u32 = radius * 2;
-    let row_count: u32 = (WIDTH as u32) / diam;
 
-    let len = model.node_count();
+    let row_count: u32 = (WIDTH as u32) / (RAD*2);
     for (i, node) in model.node_references().enumerate() {
-        let x: f64 = (radius + (i as u32 % (row_count as u32)) * diam).into();
-        let y: f64 = (radius + (i as u32 / (row_count as u32)) * diam).into();
         ctx.begin_path();
-        ctx.arc(x, y, radius.into(), 0.0, std::f64::consts::PI * 2.);
-        ctx.set_fill_style(&JsValue::from_str("white"));
+        let x: f64 = (node.1).pos_x;
+        let y: f64 = (node.1).pos_y;
+        ctx.arc(x, y, RAD.into(), 0.0, std::f64::consts::PI * 2.);
+        ctx.set_fill_style(&JsValue::from_str(format!("#{:x}{:x}{:x}", node.1.color[0], node.1.color[1], node.1.color[2]).as_str()));
         ctx.fill();
     }
 }
@@ -99,11 +106,19 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             orders.perform_cmd(async { CGGraph(fetch_cg_graph().await) });
         }
         CGGraph(Ok(res)) => {
-            let mut gr = DiGraph::<learning_trajectory::ConsensusGoal, f32>::new();
+            let mut gr = DiGraph::<CGNode, f32>::new();
             let mut idx_map: HashMap<usize, NodeIndex> = HashMap::with_capacity(res.0.len());
-            for node in res.0.into_iter() {
-                let idx = gr.add_node(node);
-                idx_map.insert(gr.raw_nodes()[idx.index()].weight.id, idx);
+
+            let row_count: u32 = (WIDTH as u32) / (RAD*2);
+            for (i, node) in res.0.into_iter().enumerate() {
+                let g_node = CGNode {
+                    color: [255,255,255],
+                    pos_x: (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)).into(),
+                    pos_y: (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)).into(),
+                    cg: node
+                };
+                let idx = gr.add_node(g_node);
+                idx_map.insert(gr.raw_nodes()[idx.index()].weight.cg.id, idx);
             }
             for edge in res.1.into_iter() {
                 gr.add_edge(
@@ -148,6 +163,7 @@ pub fn view(model: &Model) -> Node<Message> {
             style![
                 St::Border => "1px solid black",
             ],
+            ev(Ev::Click, |_| Message::CanvasClick)
         ],
         button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],
