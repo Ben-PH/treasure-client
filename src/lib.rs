@@ -6,17 +6,19 @@ mod subject;
 fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
 
-    orders.perform_cmd(async {
-        match Request::new("/api/auth").method(Method::Get).fetch().await {
-            Ok(fetch) => match fetch.check_status() {
-                Ok(good_resp) => Message::LoginMsg(pages::login::Message::GoodLogin(
-                    good_resp.json().await.unwrap(),
-                )),
-                Err(_) => Message::LoginMsg(pages::login::Message::Unauth),
-            },
-            Err(e) => Message::NetworkError(e),
-        }
-    });
+    orders
+        .perform_cmd(async {
+            match Request::new("/api/auth").method(Method::Get).fetch().await {
+                Ok(fetch) => match fetch.check_status() {
+                    Ok(good_resp) => Message::LoginMsg(pages::login::Message::GoodLogin(
+                        good_resp.json().await.unwrap(),
+                    )),
+                    Err(_) => Message::LoginMsg(pages::login::Message::Unauth),
+                },
+                Err(e) => Message::NetworkError(e),
+            }
+        })
+        .after_next_render(|_| Message::CGGraphMessage(pages::cg_graph::Message::Rendered));
     Model::default()
 }
 impl Model {
@@ -49,7 +51,7 @@ pub enum Message {
 // ------ ------
 
 fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
-    log("updating");
+    // log("updating");
 
     use Message::*;
     match msg {
