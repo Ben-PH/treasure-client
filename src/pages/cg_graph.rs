@@ -1,21 +1,50 @@
+mod ecs_stuff;
 use petgraph::dot::{Config, Dot};
 use petgraph::prelude::*;
 use petgraph::visit::IntoNodeReferences;
 use seed::{prelude::*, *};
 use shared::learning_trajectory;
 use std::collections::HashMap;
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, MouseEvent};
 
 const WIDTH: usize = 450;
 const HEIGHT: usize = 300;
 const RAD: u32 = 10;
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Model {
     pub pet: DiGraph<CGNode, f32>,
     fill_color: Color,
     canvas: ElRef<HtmlCanvasElement>,
+    specs: ecs_stuff::MyWorld,
 }
+
+
+impl Default for Model {
+    fn default() -> Self {
+        Self {
+            pet: Default::default(),
+            fill_color: Color{r: 0, g: 255, b: 0},
+            canvas: Default::default(),
+            specs: ecs_stuff::MyWorld::init_world(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl Color {
+    fn html_str(&self) -> String {
+        format!("#{:0>2x}{:0>2x}{:0>2x}", self.r, self.g, self.b)
+    }
+}
+
+
 
 struct Myf32(f32);
 
@@ -29,60 +58,43 @@ impl Default for Myf32 {
 pub enum Message {
     FetchCGGraph,
     CGGraph(fetch::Result<learning_trajectory::CGGraph>),
-    CanvasClick,
+    CanvasMouse(MouseEvent),
     DotFile,
     Rendered,
     ChangeColor,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum Color {
-    A,
-    B,
-}
 
-impl Color {
-    fn as_str(&self) -> &str {
-        match self {
-            Self::A => "blue",
-            Self::B => "green",
-        }
-    }
-}
-
-impl Default for Color {
-    fn default() -> Self {
-        Self::A
-    }
-}
 
 #[derive (Debug)]
 pub struct CGNode {
-    color: [u8;3],
+    color: Color,
     pos_x: f64,
     pos_y: f64,
     cg: shared::learning_trajectory::ConsensusGoal,
 }
 fn draw(
-    model: &petgraph::graph::DiGraph<CGNode, f32>,
-    canvas: &ElRef<HtmlCanvasElement>,
-    fill_color: Color,
+    model: &Model
+    // model: &petgraph::graph::DiGraph<CGNode, f32>,
+    // canvas: &ElRef<HtmlCanvasElement>,
+    // fill_color: &Color,
 ) {
-    let canvas = canvas.get().expect("get canvas element");
+    let canvas = model.canvas.get().expect("get canvas element");
     let ctx = seed::canvas_context_2d(&canvas);
 
     ctx.rect(0., 0., (WIDTH as u32).into(), (HEIGHT as u32).into());
-    ctx.set_fill_style(&JsValue::from_str(fill_color.as_str()));
+    ctx.set_fill_style(&JsValue::from_str(&model.fill_color.html_str()));
     ctx.fill();
 
 
     let row_count: u32 = (WIDTH as u32) / (RAD*2);
-    for (i, node) in model.node_references().enumerate() {
+    for (i, node) in model.pet.node_references().enumerate() {
         ctx.begin_path();
         let x: f64 = (node.1).pos_x;
         let y: f64 = (node.1).pos_y;
+        log!(&JsValue::from_str(&node.1.color.html_str()));
+        ctx.set_fill_style(&JsValue::from_str(&node.1.color.html_str()));
         ctx.arc(x, y, RAD.into(), 0.0, std::f64::consts::PI * 2.);
-        ctx.set_fill_style(&JsValue::from_str(format!("#{:x}{:x}{:x}", node.1.color[0], node.1.color[1], node.1.color[2]).as_str()));
         ctx.fill();
     }
 }
@@ -90,14 +102,10 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
     use Message::*;
     match msg {
         Message::ChangeColor => {
-            mdl.fill_color = if mdl.fill_color == Color::A {
-                Color::B
-            } else {
-                Color::A
-            };
+            std::mem::swap(&mut mdl.fill_color.b, &mut mdl.fill_color.g)
         }
         Message::Rendered => {
-            draw(&mdl.pet, &mdl.canvas, mdl.fill_color);
+            draw(&mdl);
             // We want to call `.skip` to prevent infinite loop.
             // (However infinite loops are useful for animations.)
             orders.after_next_render(|_| Message::Rendered).skip();
@@ -111,12 +119,15 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
 
             let row_count: u32 = (WIDTH as u32) / (RAD*2);
             for (i, node) in res.0.into_iter().enumerate() {
+                let x = (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)).into();
+                let y = (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)).into();
                 let g_node = CGNode {
-                    color: [255,255,255],
-                    pos_x: (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)).into(),
-                    pos_y: (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)).into(),
+                    color: Color{r: 255/(i as u8 +1),g: 255 - (255/(i as u8 +1)), b: 255},
+                    pos_x: x,
+                    pos_y: y,
                     cg: node
                 };
+
                 let idx = gr.add_node(g_node);
                 idx_map.insert(gr.raw_nodes()[idx.index()].weight.cg.id, idx);
             }
@@ -163,7 +174,9 @@ pub fn view(model: &Model) -> Node<Message> {
             style![
                 St::Border => "1px solid black",
             ],
-            ev(Ev::Click, |_| Message::CanvasClick)
+            mouse_ev(Ev::MouseEnter, |mouse_event| Message::CanvasMouse(mouse_event)),
+            mouse_ev(Ev::MouseLeave, |mouse_event| Message::CanvasMouse(mouse_event)),
+            mouse_ev(Ev::MouseMove, |mouse_event| Message::CanvasMouse(mouse_event))
         ],
         button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],
