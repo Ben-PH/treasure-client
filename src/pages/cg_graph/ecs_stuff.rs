@@ -1,6 +1,8 @@
 use specs::{Join, World, WorldExt, Builder, Read, DispatcherBuilder, WriteStorage, ReadStorage, Component, VecStorage, System, RunNow};
 use std::time::Duration;
 use specs::prelude::*;
+use seed::prelude::*;
+use web_sys::HtmlCanvasElement;
 
 #[derive(Component, Debug, Default)]
 #[storage(VecStorage)]
@@ -39,8 +41,22 @@ pub struct Velocity {
     pub x: f32,
     pub y: f32,
 }
-pub struct UpdatePos;
 
+pub struct Render;
+impl<'a> System<'a> for Render {
+    type SystemData = (ReadStorage<'a, Position>,
+                       Read<'a, HtmlCanvasElement>);
+    fn run(&mut self, data: Self::SystemData) {
+        let (delta, vel, mut pos) = data;
+        let delta = delta.0;
+        for (vel, pos) in (&vel, &mut pos).join() {
+            pos.x = pos.x + (delta.as_millis() as f32 / 1000.) * vel.x;
+            pos.y = pos.y + (delta.as_millis() as f32 / 1000.) * vel.y;
+        }
+    }
+}
+
+pub struct UpdatePos;
 impl<'a> System<'a> for UpdatePos {
     type SystemData = (Read<'a, DTime>,
                        ReadStorage<'a, Velocity>,

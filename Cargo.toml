@@ -12,8 +12,24 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 seed = {git = "https://github.com/seed-rs/seed.git"}
 shared = {path = "../shared"}
+crossbeam-queue = "0.2"
+dyn-clone = "1.0"
 wasm-bindgen = "0.2"
 serde = {version = "*", features = ["rc"]}
+erased-serde = "0.3"
+ron = "0.6"
+paste = "1.0"
+nalgebra = "0.22"
 petgraph = "0.5.1"
 bson = "1.0.0"
-specs = { version = "0.16", features = ["specs-derive"] }
+specs = { version = "0.16.0", default-features = false, features = ["shred-derive", "specs-derive"] }
+specs-hierarchy = "0.6.0"
+smallvec = "1.2"
+winit = {version = "0.22", features = ["stdweb"], default = false}
+# font-kit = "0.5"
+derivative = "2.1.1"
+derive-new = "0.5.6"
+backtrace = "0.3"
+rand = "0.7"
+# amethyst_derive = "0.15.3"
+parking_lot = "0.11"

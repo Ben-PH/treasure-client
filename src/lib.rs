@@ -1,7 +1,13 @@
+#[macro_use]
+extern crate serde;
+
 use seed::{prelude::*, *};
 
 mod pages;
 mod subject;
+mod ametheed;
+// mod amethyst_ui;
+// use winit::{window::Window, MonitorId, window::WindowId, window::EventsLoop, events::DeviceId};
 
 fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
