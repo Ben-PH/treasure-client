@@ -1,4 +1,5 @@
 pub mod ecs;
+use crate::pages::cg_graph::ecs::Color;
 use crate::ametheed::ui::colored_box::UiColorBox;
 use crate::ametheed::Interactable;
 use crate::ametheed::UiText;
@@ -8,12 +9,9 @@ use crate::ametheed::ui::button::builder::UiButtonBuilderResources;
 use crate::ametheed::UiButton;
 use crate::ametheed::ui::layout::Anchor;
 use crate::pages::cg_graph::ecs::components::Position;
-use crate::pages::cg_graph::ecs::components::Renderable;
-use crate::pages::cg_graph::ecs::components::Color;
 use petgraph::dot::{Config, Dot};
 use petgraph::prelude::*;
 use seed::{prelude::*, *};
-use shared::learning_trajectory;
 use specs::prelude::*;
 use std::collections::HashMap;
 use web_sys::{HtmlCanvasElement};
@@ -22,20 +20,70 @@ const WIDTH: usize = 900;
 const HEIGHT: usize = 600;
 const RAD: u32 = 50;
 
-#[derive(Debug)]
 pub struct Model {
     pub pet: DiGraph<UiButton, f32>,
-    fill_color: Color,
     canvas: ElRef<HtmlCanvasElement>,
-    pub specs: ecs::State,
+    pub world: specs::World,
     tics: usize,
+}
+
+#[derive(Component)]
+#[storage(VecStorage)]
+enum CpOrigin {
+    TopLeft,
+    Center,
+}
+
+impl Default for CpOrigin {
+   
+    fn default() -> Self { Self::Center }
+}
+
+#[derive(Default, Component)]
+#[storage(VecStorage)]
+struct CpPos {
+    x: f64,
+    y: f64
+}
+
+#[derive(Default, Component)]
+#[storage(VecStorage)]
+struct CpLayer {
+    z: f32,
+}
+
+#[derive(Default, Component)]
+#[storage(VecStorage)]
+struct CpDimension {
+    w: f64,
+    h: f64,
+}
+
+struct Renderer<'a> {
+    mdl: &'a Model,
+}
+impl<'a> System<'a> for Renderer<'_> {
+
+    type SystemData = (
+        ReadStorage<'a, CpDimension>,
+        ReadStorage<'a, CpPos>,
+        ReadStorage<'a, CpOrigin>,
+    );
+    fn run(&mut self, (dims, poss, origins): Self::SystemData) {
+        let canvas = self.mdl.canvas.get().expect("get canvas element");
+        let ctx = seed::canvas_context_2d(&canvas);
+        ctx.set_fill_style(&JsValue::from("#000000"));
+        for (dim, pos, _orig) in (&dims, &poss, &origins).join() {
+            ctx.fill_rect(pos.x, pos.y, dim.w, dim.h);
+        }
+    }
 }
 
 impl Model {
     fn render(&mut self) {
-        let xform = self.specs.inner.read_storage::<UiTransform>();
-        let text = self.specs.inner.read_storage::<UiText>();
-        let col = self.specs.inner.read_storage::<UiColorBox>();
+        let xform = self.world.read_storage::<UiTransform>();
+        let text = self.world.read_storage::<UiText>();
+        let col = self.world.read_storage::<UiColorBox>();
         let canvas = self.canvas.get().expect("get canvas element");
         let ctx = seed::canvas_context_2d(&canvas);
         for (xform, text, col) in (&xform, &text, &col).join() {
@@ -58,11 +106,10 @@ impl Model {
     }
 
     fn detect_hover(&mut self, mouse_pos: (f32, f32)) {
-        let positions = self.specs.inner.read_storage::<Position>();
-        let rends = self.specs.inner.read_storage::<Renderable>();
-        let mut cols = self.specs.inner.write_storage::<ecs::components::Color>();
-        for (_rend, pos, mut col) in (&rends, &positions, &mut cols).join() {
-            if (mouse_pos.0 - pos.x) * (mouse_pos.0 - pos.x) + (mouse_pos.1 - pos.y) * (mouse_pos.1 - pos.y) < (RAD * RAD) as f32
+        let positions = self.world.read_storage::<CpPos>();
+        let mut cols = self.world.write_storage::<ecs::components::Color>();
+        for (pos, mut col) in (&positions, &mut cols).join() {
+            if (mouse_pos.0 - pos.x as f32) * (mouse_pos.0 - pos.x as f32) + (mouse_pos.1 - pos.y) * (mouse_pos.1 - pos.y) < (RAD * RAD) as f32
             {
                 col.b = 0;
             }
@@ -73,19 +120,18 @@ impl Model {
 
 impl Default for Model {
     fn default() -> Self {
-        let mut specs = ecs::State::init();
-        specs
-            .inner
-            .create_entity()
-            .with(Renderable)
-            .with(ecs::components::Position { x: 50.0, y: 50.0 })
-            .build();
+        let mut world = World::new();
+        // world.register::<Position>();
+        world.register::<CpOrigin>();
+        world.register::<CpDimension>();
+        world.register::<CpPos>();
+        // world.register::<Color>();
         Self {
             tics: 0,
             pet: Default::default(),
-            fill_color: Color { r: 0, g: 255, b: 0 },
+            // fill_color: Color { r: 0, g: 255, b: 0 },
             canvas: Default::default(),
-            specs,
+            world,
         }
     }
 }
@@ -114,7 +160,7 @@ impl Default for Myf32 {
 #[derive(Debug)]
 pub enum Message {
     FetchCGGraph,
-    CGGraph(fetch::Result<learning_trajectory::CGGraph>),
+    CGGraph(fetch::Result<CGGraph>),
     OnTick(RenderInfo),
     CanvasMouse(web_sys::MouseEvent),
     DotFile,
@@ -122,13 +168,24 @@ pub enum Message {
     ChangeColor,
 }
 
-#[derive(Debug)]
-pub struct CGNode {
-    color: Color,
-    pos_x: f64,
-    pos_y: f64,
-    cg: shared::learning_trajectory::ConsensusGoal,
+#[derive(Debug, Default, Serialize, Deserialize, Component)]
+#[storage(VecStorage)]
+pub struct ConsensusGoal {
+    pub id: usize,
+    pub plugged: bool,
+    pub st8mnt: String,
+    pub weight: f32,
 }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConsensusEdge {
+    pub id: usize,
+    pub label: String,
+    pub left: usize,
+    pub right: usize,
+    pub weight: f32,
+}
+
+pub type CGGraph = (Vec<ConsensusGoal>, Vec<ConsensusEdge>);
 // fn draw(
 //     model: &Model
 //     // model: &petgraph::graph::DiGraph<CGNode, f32>,
@@ -157,10 +214,11 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
     match msg {
         Message::OnTick(rend_inf) => {
             mdl.tics += 1;
-            mdl.render();
+            let mut rendy = Renderer{mdl};
+            rendy.run_now(&rendy.mdl.world);
             orders.after_next_render(Message::OnTick);
         }
-        Message::ChangeColor => std::mem::swap(&mut mdl.fill_color.b, &mut mdl.fill_color.g),
+        // Message::ChangeColor => std::mem::swap(&mut mdl.fill_color.b, &mut mdl.fill_color.g),
         // Message::Rendered => {
         //     draw(&mdl);
         //     // We want to call `.skip` to prevent infinite loop.
@@ -168,29 +226,26 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
         //     orders.after_next_render(|_| Message::Rendered).skip();
         // }
         FetchCGGraph => {
+            log!("F");
             orders.perform_cmd(async { CGGraph(fetch_cg_graph().await) });
         }
         CGGraph(Ok(res)) => {
-            let mut gr = DiGraph::<CGNode, f32>::new();
+            let mut gr = DiGraph::<ConsensusGoal, f32>::new();
             let mut idx_map: HashMap<usize, NodeIndex> = HashMap::with_capacity(res.0.len());
             let row_count: u32 = (WIDTH as u32) / (RAD * 2);
             for (i, node) in res.0.into_iter().enumerate() {
                 let x = (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)) as f32;
                 let y = (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)) as f32;
-                let xform = UiTransform::new(
-                    i.to_string(),
-                    Anchor::Middle,
-                    Anchor::Middle,
-                    x,
-                    y,
-                    0.,
-                    (RAD * 2) as f32,
-                    (RAD * 2) as f32,
-                );
+                let dim = CpDimension{
+                    w: RAD as f64,
+                    h: RAD as f64
+                };
+                let pos = CpPos{x: x.into(), y: y.into()};
+                let origin = CpOrigin::Center;
                 let r =  255 / (i as u8 + 1);
                 let g =  255 - (255 / (i as u8 + 1));
                 let b =  255;
-                let col = crate::ametheed::ui::colored_box::UiColorBox::SolidColor(Color{r,g,b});
+                // let col = crate::ametheed::ui::colored_box::UiColorBox::SolidColor(Color{r,g,b});
                 let text = UiText::new(
                     i.to_string(),
                     [(255 - r).into(), (255 - g).into(), (255 - b) as f32, 255.],
@@ -199,14 +254,14 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
                     Anchor::Middle
 
                 );
-                mdl.specs.inner.create_entity()
-                               .with(xform)
-                               .with(text)
-                               .with(col)
-                               // .with(Interactable)
-                    .build();
-                // let idx = gr.add_node(g_node);
-                // idx_map.insert(gr.raw_nodes()[idx.index()].weight.cg.id, idx);
+                mdl.world
+                         .create_entity()
+                         .with(pos)
+                         .with(dim)
+                         .with(origin)
+                         .build();
+                let idx = gr.add_node(node);
+                idx_map.insert(gr.raw_nodes()[idx.index()].weight.id, idx);
             }
             for edge in res.1.into_iter() {
                 gr.add_edge(
@@ -238,6 +293,7 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
         }
         DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
         CanvasMouse(ev) => {
+            log!("M");
             let ox = mdl.canvas.get().unwrap().offset_left()
                 - web_sys::window().unwrap().page_x_offset().unwrap() as i32;
             let oy = mdl.canvas.get().unwrap().offset_top()
@@ -256,7 +312,7 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
     }
 }
 
-async fn fetch_cg_graph() -> fetch::Result<learning_trajectory::CGGraph> {
+async fn fetch_cg_graph() -> fetch::Result<CGGraph> {
     let result = Request::new("api/graph/cg_graph")
         .method(Method::Get)
         .fetch()
@@ -294,6 +350,6 @@ pub fn view(model: &Model) -> Node<Message> {
         ],
         button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],
-        li![format!("{:?}", model)]
+        // li![format!("{:?}", model)]
     ]
 }

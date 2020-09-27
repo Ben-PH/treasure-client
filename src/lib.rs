@@ -1,5 +1,5 @@
-#[macro_use]
-extern crate serde;
+#[macro_use] extern crate serde;
+#[macro_use] extern crate specs;
 
 use seed::{prelude::*, *};
 
@@ -37,7 +37,7 @@ impl Model {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct Model {
     login: Option<pages::login::Model>,
     subjects: pages::cg_graph::Model,
