@@ -5,9 +5,9 @@ use seed::{prelude::*, *};
 
 mod pages;
 mod subject;
-mod ametheed;
-// mod amethyst_ui;
-// use winit::{window::Window, MonitorId, window::WindowId, window::EventsLoop, events::DeviceId};
+// mod ametheed;
+mod components;
+mod systems;
 
 fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
@@ -23,8 +23,7 @@ fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
                 },
                 Err(e) => Message::NetworkError(e),
             }
-        })
-        .after_next_render(|_| Message::CGGraphMessage(pages::cg_graph::Message::Rendered));
+        });
     Model::default()
 }
 impl Model {

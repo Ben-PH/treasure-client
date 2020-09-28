@@ -1,134 +1,47 @@
-pub mod ecs;
-use crate::pages::cg_graph::ecs::Color;
-use crate::ametheed::ui::colored_box::UiColorBox;
-use crate::ametheed::Interactable;
-use crate::ametheed::UiText;
-use crate::ametheed::ui::transform::UiTransform;
-use crate::ametheed::ui::button::UiButtonBuilder;
-use crate::ametheed::ui::button::builder::UiButtonBuilderResources;
-use crate::ametheed::UiButton;
-use crate::ametheed::ui::layout::Anchor;
-use crate::pages::cg_graph::ecs::components::Position;
+use crate::systems::*;
+use crate::components::*;
 use petgraph::dot::{Config, Dot};
 use petgraph::prelude::*;
 use seed::{prelude::*, *};
 use specs::prelude::*;
 use std::collections::HashMap;
-use web_sys::{HtmlCanvasElement};
+use web_sys::HtmlCanvasElement;
 
 const WIDTH: usize = 900;
 const HEIGHT: usize = 600;
 const RAD: u32 = 50;
 
 pub struct Model {
-    pub pet: DiGraph<UiButton, f32>,
+    // pub pet: DiGraph<UiButton, f32>,
     canvas: ElRef<HtmlCanvasElement>,
     pub world: specs::World,
     tics: usize,
 }
-
-#[derive(Component)]
-#[storage(VecStorage)]
-enum CpOrigin {
-    TopLeft,
-    Center,
-}
-
-impl Default for CpOrigin {
-   
-    fn default() -> Self { Self::Center }
-}
-
-#[derive(Default, Component)]
-#[storage(VecStorage)]
-struct CpPos {
-    x: f64,
-    y: f64
-}
-
-#[derive(Default, Component)]
-#[storage(VecStorage)]
-struct CpLayer {
-    z: f32,
-}
-
-#[derive(Default, Component)]
-#[storage(VecStorage)]
-struct CpDimension {
-    w: f64,
-    h: f64,
-}
-
-struct Renderer<'a> {
-    mdl: &'a Model,
-}
-impl<'a> System<'a> for Renderer<'_> {
-
-    type SystemData = (
-        ReadStorage<'a, CpDimension>,
-        ReadStorage<'a, CpPos>,
-        ReadStorage<'a, CpOrigin>,
-    );
-    fn run(&mut self, (dims, poss, origins): Self::SystemData) {
-        let canvas = self.mdl.canvas.get().expect("get canvas element");
-        let ctx = seed::canvas_context_2d(&canvas);
-        ctx.set_fill_style(&JsValue::from("#000000"));
-        for (dim, pos, _orig) in (&dims, &poss, &origins).join() {
-            ctx.fill_rect(pos.x, pos.y, dim.w, dim.h);
-        }
-    }
-}
-
 impl Model {
-    fn render(&mut self) {
-        let xform = self.world.read_storage::<UiTransform>();
-        let text = self.world.read_storage::<UiText>();
-        let col = self.world.read_storage::<UiColorBox>();
-        let canvas = self.canvas.get().expect("get canvas element");
-        let ctx = seed::canvas_context_2d(&canvas);
-        for (xform, text, col) in (&xform, &text, &col).join() {
-            ctx.begin_path();
-            let x = xform.local_x;
-            let y = xform.local_y;
-            match col {
-                UiColorBox::SolidColor(col) => ctx.set_fill_style(&JsValue::from_str(&col.html_str())),
-            }
-
-            ctx.arc(
-                x as f64,
-                y as f64,
-                RAD.into(),
-                0.0,
-                std::f64::consts::PI * 2.,
-            );
-            ctx.fill();
-        }
-    }
-
-    fn detect_hover(&mut self, mouse_pos: (f32, f32)) {
-        let positions = self.world.read_storage::<CpPos>();
-        let mut cols = self.world.write_storage::<ecs::components::Color>();
-        for (pos, mut col) in (&positions, &mut cols).join() {
-            if (mouse_pos.0 - pos.x as f32) * (mouse_pos.0 - pos.x as f32) + (mouse_pos.1 - pos.y) * (mouse_pos.1 - pos.y) < (RAD * RAD) as f32
-            {
-                col.b = 0;
-            }
-        }
-        // log!(mouse_pos);
-    }
+    // fn detect_hover(&mut self, mouse_pos: (f32, f32)) {
+    //     let positions = self.world.read_storage::<Pos>();
+    //     for (pos, mut col) in (&positions, &mut cols).join() {
+    //         if (mouse_pos.0 - pos.x as f32) * (mouse_pos.0 - pos.x as f32) + (mouse_pos.1 - pos.y) * (mouse_pos.1 - pos.y) < (RAD * RAD) as f32
+    //         {
+    //             col.b = 0;
+    //         }
+    //     }
+    //     // log!(mouse_pos);
+    // }
 }
 
 impl Default for Model {
     fn default() -> Self {
         let mut world = World::new();
         // world.register::<Position>();
-        world.register::<CpOrigin>();
-        world.register::<CpDimension>();
-        world.register::<CpPos>();
+        world.register::<Origin>();
+        world.register::<Interactable>();
+        world.register::<Dimension>();
+        world.register::<Pos>();
         // world.register::<Color>();
         Self {
             tics: 0,
-            pet: Default::default(),
+            // pet: Default::default(),
             // fill_color: Color { r: 0, g: 255, b: 0 },
             canvas: Default::default(),
             world,
@@ -162,7 +75,7 @@ pub enum Message {
     FetchCGGraph,
     CGGraph(fetch::Result<CGGraph>),
     OnTick(RenderInfo),
-    CanvasMouse(web_sys::MouseEvent),
+    CanvasMouse(web_sys::MouseEvent, Ev),
     DotFile,
     Rendered,
     ChangeColor,
@@ -213,9 +126,8 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
     use Message::*;
     match msg {
         Message::OnTick(rend_inf) => {
-            mdl.tics += 1;
-            let mut rendy = Renderer{mdl};
-            rendy.run_now(&rendy.mdl.world);
+            let mut rendy = Renderer{canv_ref: mdl.canvas.clone()};
+            rendy.run_now(&mdl.world);
             orders.after_next_render(Message::OnTick);
         }
         // Message::ChangeColor => std::mem::swap(&mut mdl.fill_color.b, &mut mdl.fill_color.g),
@@ -236,29 +148,22 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             for (i, node) in res.0.into_iter().enumerate() {
                 let x = (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)) as f32;
                 let y = (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)) as f32;
-                let dim = CpDimension{
+                let dim = Dimension{
                     w: RAD as f64,
                     h: RAD as f64
                 };
-                let pos = CpPos{x: x.into(), y: y.into()};
-                let origin = CpOrigin::Center;
+                let pos = Pos{x: x.into(), y: y.into()};
+                let origin = Origin::Center;
                 let r =  255 / (i as u8 + 1);
                 let g =  255 - (255 / (i as u8 + 1));
                 let b =  255;
                 // let col = crate::ametheed::ui::colored_box::UiColorBox::SolidColor(Color{r,g,b});
-                let text = UiText::new(
-                    i.to_string(),
-                    [(255 - r).into(), (255 - g).into(), (255 - b) as f32, 255.],
-                    RAD as f32 / 2.,
-                    crate::ametheed::ui::text::LineMode::Single,
-                    Anchor::Middle
-
-                );
                 mdl.world
                          .create_entity()
                          .with(pos)
                          .with(dim)
                          .with(origin)
+                         .with(Interactable)
                          .build();
                 let idx = gr.add_node(node);
                 idx_map.insert(gr.raw_nodes()[idx.index()].weight.id, idx);
@@ -288,22 +193,28 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             //         .with(Renderable)
             //         .build();
             // }
-            log!(mdl.pet.raw_nodes());
+            // log!(mdl.pet.raw_nodes());
             orders.after_next_render(Message::OnTick);
         }
-        DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
-        CanvasMouse(ev) => {
-            log!("M");
+        // DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
+        CanvasMouse(ws_ev, ev) => {
             let ox = mdl.canvas.get().unwrap().offset_left()
                 - web_sys::window().unwrap().page_x_offset().unwrap() as i32;
             let oy = mdl.canvas.get().unwrap().offset_top()
                 - web_sys::window().unwrap().page_y_offset().unwrap() as i32;
-            let canv_pos = (ev.client_x() - ox, ev.client_y() - oy);
+            let canv_pos = (ws_ev.client_x() - ox, ws_ev.client_y() - oy);
             let canvas = mdl.canvas.get().expect("get canvas element");
             let ctx = seed::canvas_context_2d(&canvas);
             let x = canv_pos.0;
             let y = canv_pos.1;
-            mdl.detect_hover((x as f32, y as f32));
+            match ev {
+                Ev::MouseDown => {log!("mouse down")}
+                Ev::MouseUp => {log!("mouse up")}
+                Ev::Click => {log!("click")}
+                Ev::DblClick => {log!("doubleclick")}
+                _ => {log!("unhandled event")}
+            }
+            // mdl.detect_hover((x as f32, y as f32));
         }
         // Task(Ok((id, res))) => {
         //     mdl.subjects.get_mut(&id).unwrap().learning_objectives = res;
@@ -338,15 +249,15 @@ pub fn view(model: &Model) -> Node<Message> {
             style![
                 St::Border => "1px solid black",
             ],
-            mouse_ev(Ev::MouseEnter, |mouse_event| Message::CanvasMouse(
-                mouse_event
+            mouse_ev(Ev::MouseDown, |mouse_event| Message::CanvasMouse(
+                mouse_event, Ev::MouseDown
             )),
-            mouse_ev(Ev::MouseLeave, |mouse_event| Message::CanvasMouse(
-                mouse_event
+            mouse_ev(Ev::MouseUp, |mouse_event| Message::CanvasMouse(
+                mouse_event, Ev::MouseUp
             )),
-            mouse_ev(Ev::MouseMove, |mouse_event| Message::CanvasMouse(
-                mouse_event.unchecked_into()
-            ))
+            // mouse_ev(Ev::MouseMove, |mouse_event| Message::CanvasMouse(
+            //     mouse_event.unchecked_into()
+            // ))
         ],
         button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],

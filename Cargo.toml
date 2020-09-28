@@ -34,3 +34,4 @@ backtrace = "0.3"
 rand = "0.7"
 # amethyst_derive = "0.15.3"
 parking_lot = "0.11"
+web-sys = {version = "*", features = ["HtmlCanvasElement"]}
