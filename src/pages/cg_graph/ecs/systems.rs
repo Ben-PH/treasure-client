@@ -3,8 +3,8 @@ use crate::pages::cg_graph::ecs::DTime;
 use specs::{Join, Read, ReadStorage, System, WriteStorage,};
 
 pub struct MousePos {
-    x: f64,
-    y: f64,
+    pub x: f64,
+    pub y: f64,
 }
 
 pub struct UpdatePos;

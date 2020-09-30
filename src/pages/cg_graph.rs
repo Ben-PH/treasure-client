@@ -7,8 +7,8 @@ use specs::prelude::*;
 use std::collections::HashMap;
 use web_sys::HtmlCanvasElement;
 
-const WIDTH: usize = 900;
-const HEIGHT: usize = 600;
+pub const WIDTH: usize = 900;
+pub const HEIGHT: usize = 600;
 const RAD: u32 = 50;
 
 pub struct Model {
@@ -38,6 +38,7 @@ impl Default for Model {
         world.register::<Interactable>();
         world.register::<Dimension>();
         world.register::<Pos>();
+        world.insert(MousePos::default());
         // world.register::<Color>();
         Self {
             tics: 0,
@@ -62,17 +63,10 @@ impl Default for Model {
 //     }
 // }
 
-struct Myf32(f32);
-
-impl Default for Myf32 {
-    fn default() -> Self {
-        Myf32(0.0)
-    }
-}
-
 #[derive(Debug)]
 pub enum Message {
     FetchCGGraph,
+    MakeDummyCGGraph,
     CGGraph(fetch::Result<CGGraph>),
     OnTick(RenderInfo),
     CanvasMouse(web_sys::MouseEvent, Ev),
@@ -137,6 +131,10 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
         //     // (However infinite loops are useful for animations.)
         //     orders.after_next_render(|_| Message::Rendered).skip();
         // }
+        MakeDummyCGGraph => {
+            let dummy: self::CGGraph = (vec![ConsensusGoal::default(), ConsensusGoal::default()], vec![]);
+            orders.perform_cmd(async{CGGraph(Ok(dummy))});
+        }
         FetchCGGraph => {
             log!("F");
             orders.perform_cmd(async { CGGraph(fetch_cg_graph().await) });
@@ -146,13 +144,14 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             let mut idx_map: HashMap<usize, NodeIndex> = HashMap::with_capacity(res.0.len());
             let row_count: u32 = (WIDTH as u32) / (RAD * 2);
             for (i, node) in res.0.into_iter().enumerate() {
-                let x = (RAD + (i as u32 % (row_count as u32)) * (RAD * 2)) as f32;
-                let y = (RAD + (i as u32 / (row_count as u32)) * (RAD * 2)) as f32;
+                let x = ((i as u32 % (row_count as u32)) * (RAD * 2)) as f64;
+                let y = ((i as u32 / (row_count as u32)) * (RAD * 2)) as f64;
+                log!((x,y));
                 let dim = Dimension{
                     w: RAD as f64,
                     h: RAD as f64
                 };
-                let pos = Pos{x: x.into(), y: y.into()};
+                let pos = Pos{x: x as f64, y: y as f64};
                 let origin = Origin::Center;
                 let r =  255 / (i as u8 + 1);
                 let g =  255 - (255 / (i as u8 + 1));
@@ -163,7 +162,7 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
                          .with(pos)
                          .with(dim)
                          .with(origin)
-                         .with(Interactable)
+                         .with(Interactable::default())
                          .build();
                 let idx = gr.add_node(node);
                 idx_map.insert(gr.raw_nodes()[idx.index()].weight.id, idx);
@@ -198,20 +197,34 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
         }
         // DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
         CanvasMouse(ws_ev, ev) => {
-            let ox = mdl.canvas.get().unwrap().offset_left()
-                - web_sys::window().unwrap().page_x_offset().unwrap() as i32;
-            let oy = mdl.canvas.get().unwrap().offset_top()
-                - web_sys::window().unwrap().page_y_offset().unwrap() as i32;
-            let canv_pos = (ws_ev.client_x() - ox, ws_ev.client_y() - oy);
-            let canvas = mdl.canvas.get().expect("get canvas element");
-            let ctx = seed::canvas_context_2d(&canvas);
-            let x = canv_pos.0;
-            let y = canv_pos.1;
             match ev {
-                Ev::MouseDown => {log!("mouse down")}
-                Ev::MouseUp => {log!("mouse up")}
+                Ev::MouseDown => {
+                    let ox = mdl.canvas.get().unwrap().offset_left() as f64
+                        - web_sys::window().unwrap().page_x_offset().unwrap();
+                    let oy = mdl.canvas.get().unwrap().offset_top() as f64
+                        - web_sys::window().unwrap().page_y_offset().unwrap();
+                    let canv_pos = (ws_ev.client_x() as f64 - ox, ws_ev.client_y() as f64 - oy);
+                    Interactable::MouseDown(canv_pos.0, canv_pos.1).run_now(&mdl.world);
+                    orders.after_next_render(Message::OnTick);
+                }
+                Ev::MouseUp => {
+                    Interactable::MouseUp.run_now(&mdl.world);
+                    orders.after_next_render(Message::OnTick);
+                }
                 Ev::Click => {log!("click")}
                 Ev::DblClick => {log!("doubleclick")}
+                Ev::MouseMove => {
+                    let ox = mdl.canvas.get().unwrap().offset_left() as f64
+                        - web_sys::window().unwrap().page_x_offset().unwrap();
+                    let oy = mdl.canvas.get().unwrap().offset_top() as f64
+                        - web_sys::window().unwrap().page_y_offset().unwrap();
+                    let canv_pos = (ws_ev.client_x() as f64 - ox, ws_ev.client_y() as f64 - oy);
+                    let mut up_pos = UpdateMousePos{x: canv_pos.0, y: canv_pos.1};
+                    up_pos.run_now(&mdl.world);
+                    Interactable::Hover.run_now(&mdl.world);
+                    Drag.run_now(&mdl.world);
+                    orders.after_next_render(Message::OnTick);
+                }
                 _ => {log!("unhandled event")}
             }
             // mdl.detect_hover((x as f32, y as f32));
@@ -237,8 +250,12 @@ async fn fetch_cg_graph() -> fetch::Result<CGGraph> {
 pub fn view(model: &Model) -> Node<Message> {
     ul![
         li![button![
-            "get cg_graph",
+            "get cg_graph with backend",
             ev(Ev::Click, |_| Message::FetchCGGraph)
+        ]],
+        li![button![
+            "get cg_graph without backend",
+            ev(Ev::Click, |_| Message::MakeDummyCGGraph)
         ]],
         canvas![
             el_ref(&model.canvas),
@@ -249,15 +266,21 @@ pub fn view(model: &Model) -> Node<Message> {
             style![
                 St::Border => "1px solid black",
             ],
-            mouse_ev(Ev::MouseDown, |mouse_event| Message::CanvasMouse(
-                mouse_event, Ev::MouseDown
-            )),
+            mouse_ev(Ev::MouseDown, |mouse_event| {
+                Message::CanvasMouse(mouse_event.unchecked_into(), Ev::MouseDown)
+            }),
             mouse_ev(Ev::MouseUp, |mouse_event| Message::CanvasMouse(
-                mouse_event, Ev::MouseUp
+                mouse_event.unchecked_into(), Ev::MouseUp
             )),
-            // mouse_ev(Ev::MouseMove, |mouse_event| Message::CanvasMouse(
-            //     mouse_event.unchecked_into()
-            // ))
+            mouse_ev(Ev::Click, |mouse_event| Message::CanvasMouse(
+                mouse_event.unchecked_into(), Ev::Click
+            )),
+            mouse_ev(Ev::DblClick, |mouse_event| Message::CanvasMouse(
+                mouse_event.unchecked_into(), Ev::DblClick
+            )),
+            mouse_ev(Ev::MouseMove, |mouse_event| Message::CanvasMouse(
+                mouse_event.unchecked_into(), Ev::MouseMove
+            ))
         ],
         button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],

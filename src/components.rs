@@ -12,11 +12,23 @@ impl Default for Origin {
     fn default() -> Self { Self::Center }
 }
 
-#[derive(Default, Component)]
-#[storage(NullStorage)]
-pub struct Interactable;
+#[derive(PartialEq, Component)]
+#[storage(VecStorage)]
+pub enum Interactable {
+    MouseDown(f64, f64),
+    MouseUp,
+    Hover,
+    Nothing,
+}
 
-#[derive(Default, Component)]
+impl Default for Interactable {
+
+    fn default() -> Self {
+        Self::Nothing
+    }
+}
+
+#[derive(Debug, Default, Component)]
 #[storage(VecStorage)]
 pub struct Pos {
     pub x: f64,
@@ -29,9 +41,10 @@ pub struct Layer {
     pub z: f32,
 }
 
-#[derive(Default, Component)]
+#[derive(Debug, Default, Component)]
 #[storage(VecStorage)]
 pub struct Dimension {
     pub w: f64,
     pub h: f64,
 }
+

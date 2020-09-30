@@ -12,18 +12,18 @@ mod systems;
 fn init(mut _url: Url, orders: &mut impl Orders<Message>) -> Model {
     log!("I N I T I A L I Z E");
 
-    orders
-        .perform_cmd(async {
-            match Request::new("/api/auth").method(Method::Get).fetch().await {
-                Ok(fetch) => match fetch.check_status() {
-                    Ok(good_resp) => Message::LoginMsg(pages::login::Message::GoodLogin(
-                        good_resp.json().await.unwrap(),
-                    )),
-                    Err(_) => Message::LoginMsg(pages::login::Message::Unauth),
-                },
-                Err(e) => Message::NetworkError(e),
-            }
-        });
+    // orders
+    //     .perform_cmd(async {
+    //         match Request::new("/api/auth").method(Method::Get).fetch().await {
+    //             Ok(fetch) => match fetch.check_status() {
+    //                 Ok(good_resp) => Message::LoginMsg(pages::login::Message::GoodLogin(
+    //                     good_resp.json().await.unwrap(),
+    //                 )),
+    //                 Err(_) => Message::LoginMsg(pages::login::Message::Unauth),
+    //             },
+    //             Err(e) => Message::NetworkError(e),
+    //         }
+    //     });
     Model::default()
 }
 impl Model {
@@ -38,6 +38,7 @@ impl Model {
 
 #[derive(Default)]
 struct Model {
+
     login: Option<pages::login::Model>,
     subjects: pages::cg_graph::Model,
     canvas: ElRef<web_sys::HtmlCanvasElement>,
@@ -85,17 +86,13 @@ fn update(msg: Message, model: &mut Model, orders: &mut impl Orders<Message>) {
 // ------ ------
 
 fn view(mdl: &Model) -> Vec<Node<Message>> {
-    let main_view = match &mdl.login {
-        Some(login) => nodes![pages::login::view(&login)].map_msg(Message::LoginMsg),
-        None => nodes![div!["foobar"]],
-    };
+    // let main_view = match &mdl.login {
+    //     Some(login) => nodes![pages::login::view(&login)].map_msg(Message::LoginMsg),
+    //     None => nodes![div!["foobar"]],
+    // };
     nodes![
-        main_view,
+        // main_view,
         pages::cg_graph::view(&mdl.subjects).map_msg(Message::CGGraphMessage),
-        canvas![
-            el_ref(&mdl.canvas),
-            attrs! { At::Width => px(200), At::Height => px(200) }
-        ]
     ]
 }
 
