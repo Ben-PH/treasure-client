@@ -14,21 +14,46 @@ pub struct Renderer {
     pub canv_ref: ElRef<HtmlCanvasElement>,
 }
 
+
+pub struct LineDraw {
+    pub canv_ref: ElRef<HtmlCanvasElement>,
+}
+impl<'a> System<'a> for LineDraw {
+
+    type SystemData = (
+        ReadStorage<'a, Line>,
+    );
+    fn run(&mut self, (data, ): Self::SystemData) {
+        let canvas = self.canv_ref.get().expect("get canvas element");
+        let ctx = seed::canvas_context_2d(&canvas);
+        ctx.set_fill_style(&JsValue::from("#000000"));
+        for line in (&data).join() {
+            ctx.begin_path();
+            ctx.move_to(line.start.x, line.start.y);
+            ctx.line_to(line.end.x, line.end.y);
+            ctx.stroke();
+        }
+    }
+}
+
 impl<'a> System<'a> for Renderer {
 
     type SystemData = (
         ReadStorage<'a, Dimension>,
         ReadStorage<'a, Pos>,
         ReadStorage<'a, Origin>,
+        ReadStorage<'a, Text>,
+        ReadStorage<'a, Edge>,
+        Entities<'a>,
         ReadStorage<'a, Interactable>
     );
-    fn run(&mut self, (dims, poss, origins, states): Self::SystemData) {
+    fn run(&mut self, (dims, poss, origins, texts, edges, ents, states): Self::SystemData) {
         let canvas = self.canv_ref.get().expect("get canvas element");
         let ctx = seed::canvas_context_2d(&canvas);
         ctx.set_fill_style(&JsValue::from("#000000"));
         ctx.clear_rect(0., 0., WIDTH as f64, HEIGHT as f64);
         let mut black = false;
-        for (dim, pos, _orig, state) in (&dims, &poss, &origins, &states).join() {
+        for (dim, pos, _orig, state) in (&dims, &poss, &origins,  &states).join() {
             match (black, state) {
                 (_, Interactable::Hover) => {
 
@@ -51,7 +76,16 @@ impl<'a> System<'a> for Renderer {
 
                 }
             }
+            // ctx.fill_text_with_max_width(&txt.st, pos.x, pos.y, dim.w).unwrap();
             // ctx.fill_rect(pos.x, pos.y, dim.w, dim.h);
+        }
+        for edge in (&edges).join() {
+            let left = poss.get(edge.left).unwrap();
+            let right = poss.get(edge.right).unwrap();
+            ctx.begin_path();
+            ctx.move_to(left.x, left.y);
+            ctx.line_to(right.x, right.y);
+            ctx.stroke();
         }
     }
 }

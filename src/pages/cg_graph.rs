@@ -1,7 +1,9 @@
+use std::collections::VecDeque;
 use crate::systems::*;
 use crate::components::*;
 use petgraph::dot::{Config, Dot};
 use petgraph::prelude::*;
+use petgraph::visit::Bfs;
 use seed::{prelude::*, *};
 use specs::prelude::*;
 use std::collections::HashMap;
@@ -11,11 +13,11 @@ pub const WIDTH: usize = 900;
 pub const HEIGHT: usize = 600;
 const RAD: u32 = 50;
 
+
 pub struct Model {
-    // pub pet: DiGraph<UiButton, f32>,
+    pub pet: DiGraph<ConsensusGoal, ConsensusEdge>,
     canvas: ElRef<HtmlCanvasElement>,
     pub world: specs::World,
-    tics: usize,
 }
 impl Model {
     // fn detect_hover(&mut self, mouse_pos: (f32, f32)) {
@@ -38,11 +40,12 @@ impl Default for Model {
         world.register::<Interactable>();
         world.register::<Dimension>();
         world.register::<Pos>();
+        world.register::<Edge>();
+        world.register::<Text>();
         world.insert(MousePos::default());
         // world.register::<Color>();
         Self {
-            tics: 0,
-            // pet: Default::default(),
+            pet: Default::default(),
             // fill_color: Color { r: 0, g: 255, b: 0 },
             canvas: Default::default(),
             world,
@@ -71,8 +74,6 @@ pub enum Message {
     OnTick(RenderInfo),
     CanvasMouse(web_sys::MouseEvent, Ev),
     DotFile,
-    Rendered,
-    ChangeColor,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Component)]
@@ -93,29 +94,6 @@ pub struct ConsensusEdge {
 }
 
 pub type CGGraph = (Vec<ConsensusGoal>, Vec<ConsensusEdge>);
-// fn draw(
-//     model: &Model
-//     // model: &petgraph::graph::DiGraph<CGNode, f32>,
-//     // canvas: &ElRef<HtmlCanvasElement>,
-//     // fill_color: &Color,
-// ) {
-//     let canvas = model.canvas.get().expect("get canvas element");
-//     let ctx = seed::canvas_context_2d(&canvas);
-
-//     ctx.rect(0., 0., (WIDTH as u32).into(), (HEIGHT as u32).into());
-//     ctx.set_fill_style(&JsValue::from_str(&model.fill_color.html_str()));
-//     ctx.fill();
-
-//     let row_count: u32 = (WIDTH as u32) / (RAD*2);
-//     for (i, node) in model.pet.node_references().enumerate() {
-//         ctx.begin_path();
-//         let x: f64 = (node.1).pos_x;
-//         let y: f64 = (node.1).pos_y;
-//         ctx.set_fill_style(&JsValue::from_str(&node.1.color.html_str()));
-//         ctx.arc(x, y, RAD.into(), 0.0, std::f64::consts::PI * 2.);
-//         ctx.fill();
-//     }
-// }
 pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) {
     use Message::*;
     match msg {
@@ -124,13 +102,6 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             rendy.run_now(&mdl.world);
             orders.after_next_render(Message::OnTick);
         }
-        // Message::ChangeColor => std::mem::swap(&mut mdl.fill_color.b, &mut mdl.fill_color.g),
-        // Message::Rendered => {
-        //     draw(&mdl);
-        //     // We want to call `.skip` to prevent infinite loop.
-        //     // (However infinite loops are useful for animations.)
-        //     orders.after_next_render(|_| Message::Rendered).skip();
-        // }
         MakeDummyCGGraph => {
             let dummy: self::CGGraph = (vec![ConsensusGoal::default(), ConsensusGoal::default()], vec![]);
             orders.perform_cmd(async{CGGraph(Ok(dummy))});
@@ -140,41 +111,144 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             orders.perform_cmd(async { CGGraph(fetch_cg_graph().await) });
         }
         CGGraph(Ok(res)) => {
-            let mut gr = DiGraph::<ConsensusGoal, f32>::new();
+            let mut gr = DiGraph::<ConsensusGoal, ConsensusEdge>::new();
             let mut idx_map: HashMap<usize, NodeIndex> = HashMap::with_capacity(res.0.len());
             let row_count: u32 = (WIDTH as u32) / (RAD * 2);
+            let mut root: Option<NodeIndex> = None;
             for (i, node) in res.0.into_iter().enumerate() {
-                let x = ((i as u32 % (row_count as u32)) * (RAD * 2)) as f64;
-                let y = ((i as u32 / (row_count as u32)) * (RAD * 2)) as f64;
-                log!((x,y));
-                let dim = Dimension{
-                    w: RAD as f64,
-                    h: RAD as f64
-                };
-                let pos = Pos{x: x as f64, y: y as f64};
-                let origin = Origin::Center;
                 let r =  255 / (i as u8 + 1);
                 let g =  255 - (255 / (i as u8 + 1));
                 let b =  255;
-                // let col = crate::ametheed::ui::colored_box::UiColorBox::SolidColor(Color{r,g,b});
-                mdl.world
-                         .create_entity()
-                         .with(pos)
-                         .with(dim)
-                         .with(origin)
-                         .with(Interactable::default())
-                         .build();
+
+                let is_root = node.st8mnt.eq("root node");
                 let idx = gr.add_node(node);
+                if is_root {
+                    root = Some(idx);
+                }
+
                 idx_map.insert(gr.raw_nodes()[idx.index()].weight.id, idx);
             }
             for edge in res.1.into_iter() {
                 gr.add_edge(
                     *idx_map.get(&edge.left).unwrap(),
                     *idx_map.get(&edge.right).unwrap(),
-                    edge.weight,
+                    edge,
                 );
             }
-            // mdl.pet = gr;
+            let mut i = 0;
+            let mut bfs = Bfs::new(&gr, root.unwrap());
+            let mut vec: VecDeque<NodeIndex<u32>> = Default::default();
+            let mut made: VecDeque<(Entity, NodeIndex<u32>)> = Default::default();
+            // 1. while there is a parent
+            while let Some(new_node) = bfs.next(&gr) {
+
+                let mut left: Entity;
+                vec.push_back(new_node);
+                log!(vec);
+                while let Some(idx) = vec.pop_front() {
+                    match made.iter().find(|(_, i)| *i == idx) {
+                        // already been made. Get the entity
+                        Some((ent, i)) => {
+                            left = *ent;
+                        }
+                        // Hasn't been made create it.
+                        None => {
+                            let x = ((i as u32 % (row_count as u32)) * (RAD * 2)) as f64;
+                            let y = ((i as u32 / (row_count as u32)) * (RAD * 2)) as f64;
+                            let dim = Dimension{
+                                w: RAD as f64,
+                                h: RAD as f64
+                            };
+                            let pos = Pos{x: x as f64, y: y as f64};
+                            let origin = Origin::Center;
+                            // let txt = Text{st: gr.node_weight(root.unwrap()).unwrap().id.to_string()};
+
+                            left = mdl.world
+                                              .create_entity()
+                                              .with(pos)
+                                              .with(dim)
+                                              .with(origin)
+                                              // .with(txt)
+                                              .with(Interactable::default())
+                                              .build();
+
+                            made.push_back((left, idx));
+                            i+=1;
+                        }
+
+                    }
+                    // so we have the left, now for the right
+                    gr.neighbors_directed(idx, Outgoing).for_each(|idx| {
+                        match made.iter().filter(|(_, i)| i.eq(&idx)).next() {
+                            // made node for the this neigbour
+                            Some((ent, _)) => {
+                                mdl.world.create_entity()
+                                    .with(Edge{left, right: *ent})
+                                    .build();
+                            }
+                            None => {
+                                let x = ((i as u32 % (row_count as u32)) * (RAD * 2)) as f64;
+                                let y = ((i as u32 / (row_count as u32)) * (RAD * 2)) as f64;
+                                let dim = Dimension{
+                                    w: RAD as f64,
+                                    h: RAD as f64
+                                };
+                                let pos = Pos{x: x as f64, y: y as f64};
+                                let origin = Origin::Center;
+                                // let txt = Text{st: gr.node_weight(root.unwrap()).unwrap().id.to_string()};
+                                let ent = mdl.world
+                                             .create_entity()
+                                             .with(pos)
+                                             .with(dim)
+                                             .with(origin)
+                                             // .with(txt)
+                                             .with(Interactable::default())
+                                             .build();
+                                made.push_back((ent, idx));
+                                vec.push_back(idx);
+                                i += 1;
+                                let edge = Edge{left, right: ent};
+                                mdl.world.create_entity()
+                                         .with(edge)
+                                         .build();
+                            }
+                        }
+                    });
+                }
+            }
+                // use a detached neighbors walker
+            //     let mut edges = gr.neighbors_directed(new_node, Outgoing).detach();
+            //     // 3. all the kids are connected here
+            //     while let Some((edge_i, node_i)) = edges.next(&gr) {
+            //         log!(edge_i, node_i);
+            //         i += 1;
+            //         let x = ((i as u32 % (row_count as u32)) * (RAD * 2)) as f64;
+            //         let y = ((i as u32 / (row_count as u32)) * (RAD * 2)) as f64;
+            //         let txt = Text{st: gr.node_weight(node_i).unwrap().id.to_string()};
+            //         let dim = Dimension{
+            //             w: RAD as f64,
+            //             h: RAD as f64
+            //         };
+            //         let pos = Pos{x: x as f64, y: y as f64};
+            //         let origin = Origin::Center;
+            //         let right = mdl.world
+            //            .create_entity()
+            //             .with(txt)
+            //            .with(pos)
+            //            .with(dim)
+            //            .with(origin)
+            //            .with(Interactable::default())
+            //            .build();
+            //         let edge = Edge {left, right};
+            //         mdl.world
+            //            .create_entity()
+            //            .with(edge)
+            //            .build();
+            //         left = right;
+            //         // 4. on last kid, need to make the kid the now parent
+            //     }
+            // }
+            mdl.pet = gr;
             // for node in mdl.pet.raw_nodes() {
             //     let node = &node.weight;
             //     mdl.specs
@@ -195,7 +269,7 @@ pub fn update(msg: Message, mdl: &mut Model, orders: &mut impl Orders<Message>) 
             // log!(mdl.pet.raw_nodes());
             orders.after_next_render(Message::OnTick);
         }
-        // DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
+        DotFile => log!(Dot::with_config(&mdl.pet, &[Config::EdgeNoLabel])),
         CanvasMouse(ws_ev, ev) => {
             match ev {
                 Ev::MouseDown => {
@@ -282,8 +356,6 @@ pub fn view(model: &Model) -> Node<Message> {
                 mouse_event.unchecked_into(), Ev::MouseMove
             ))
         ],
-        button!["Change color", ev(Ev::Click, |_| Message::ChangeColor)],
         button!["get .dot file", ev(Ev::Click, |_| Message::DotFile)],
-        // li![format!("{:?}", model)]
     ]
 }
